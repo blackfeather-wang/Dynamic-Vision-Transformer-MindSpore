@@ -1,0 +1,320 @@
+# Vit_Dvt_12_49_196:
+#     * base configuration
+
+version: {{VERSION}}
+
+{% set name = "deit_dvt_12_49_196" %}
+name: {{name}}
+
+{% if DEVICE == "Ascend" %}
+    {% if DATASET == "imagenet" %}
+        {% set train_dataset_path = '/cache/bucket-d/data/imagenet/train' %}
+        {% set eval_dataset_path = '/cache/bucket-d/data/imagenet/val' %}
+        {% set num_classes = 1001 %}
+        {% set train_len = 1281167 %}
+        {% set val_len = 50000 %}
+    {% elif DATASET == "imagenet100" %}
+        {% set train_dataset_path = '/opt/npu/datasets/imagenet100/train' %}
+        {% set eval_dataset_path = '/opt/npu/datasets/imagenet100/val' %}
+        {% set num_classes = 101 %}
+        {% set train_len = 130000 %}
+        {% set val_len = 5000 %}
+    {% endif %}
+{% else %}
+    {% if DATASET == "imagenet" %}
+        {% set train_dataset_path = '/ssd/ssd0/datasets/ImageNet/train' %}
+        {% set eval_dataset_path = '/ssd/ssd0/datasets/ImageNet/val' %}
+        {% set num_classes = 1001 %}
+        {% set train_len = 1281167 %}
+        {% set val_len = 50000 %}
+    {% elif DATASET == "imagenet100" %}
+        {% set train_dataset_path = '/ssd/ssd0/datasets/imagenet100/train' %}
+        {% set eval_dataset_path = '/ssd/ssd0/datasets/imagenet100/val' %}
+        {% set num_classes = 101 %}
+        {% set train_len = 130000 %}
+        {% set val_len = 5000 %}
+    {% endif %}
+{% endif %}
+
+profiler:
+    func: "mindspore.profiler.profiling.Profiler"
+    output_path: "data"
+    is_detail: True
+    is_show_op_path: True
+
+{% set crop_size = 224 %}
+crop_size: {{crop_size}}
+
+{% if TRAIN_BATCH_SIZE is not none %}
+    {% set train_batch_size = TRAIN_BATCH_SIZE %}
+{% else %}
+    {% set train_batch_size = 64 %}
+{% endif %}
+train_batch_size: {{train_batch_size}}
+global_batch_size: {{train_batch_size * DEVICE_NUM}}
+{% set base_cfg = {'d_model': 384, 'd_model_norm2': 384, 'depth': 12, 'heads': 6, 'mlp_dim': 1536, 'dim_head': 64} %}
+{% set normalized_shape = [base_cfg['d_model']] %}
+{% set normalized2_shape = [base_cfg['d_model_norm2']] %}
+network:
+    func: 'networks.vit_dvt.Vit_Dvt'
+    feature_reuse: False
+    relation_reuse: False
+    less_token_backbone:
+        func: 'networks.vit_dvt.ViT'
+        d_model: {{base_cfg['d_model']}}
+        image_size: {{crop_size}}
+        patch_size: 32
+        pool: cls
+        dropout_rate: 0.1
+        depth: {{base_cfg['depth']}}
+        num_heads: {{base_cfg['heads']}}
+        initialization:
+            func: mindspore.common.initializer.Normal
+            sigma: 1.0
+        stem:
+            func: 'networks.vit_dvt.VitStem'
+            d_model: {{base_cfg['d_model']}}
+            image_size: {{crop_size}}
+            patch_size: 32
+            initialization:
+                func: mindspore.common.initializer.XavierUniform
+        dvt_block_batch_size: {{train_batch_size}}
+        dvt_block_depth: {{base_cfg['depth']}}
+        dvt_block_attention:
+            _func: 'networks.transformer_dvt.DvtAttention'
+            size_cfg: {{base_cfg}}
+            initialization:
+                func: mindspore.common.initializer.XavierUniform
+            activation:
+                func: mindspore.nn.Softmax
+            dropout_rate: 0.1
+        dvt_block_feedforward:
+            _func: 'networks.transformer.FeedForward'
+            size_cfg: {{base_cfg}}
+            initialization:
+                func: mindspore.common.initializer.XavierUniform
+            activation:
+                func: mindspore.nn.GELU
+            dropout_rate: 0.1
+        dvt_block_feature_resuse_feedforward:
+            _func: 'mindspore.ops.Identity'
+        dvt_block_normalization1:
+            _func: 'mindspore.nn.LayerNorm'
+            normalized_shape: {{normalized_shape}}
+        dvt_block_normalization2:
+            _func: 'mindspore.nn.LayerNorm'
+            normalized_shape: {{normalized_shape}}
+        dvt_block_feature_reuse: False
+        dvt_block_relation_reuse: False
+        head:
+            func: 'networks.vit_dvt.origin_head'
+            size_cfg: {{base_cfg}}
+            dropout_rate: 0.1
+            num_classes: {{num_classes}}
+            activation:
+                func: mindspore.nn.GELU
+            initialization:
+                func: mindspore.common.initializer.XavierUniform
+            normalization:
+                func: 'mindspore.nn.LayerNorm'
+                normalized_shape: {{normalized_shape}}
+        norm:
+            _func: 'mindspore.nn.LayerNorm'
+            normalized_shape: {{normalized_shape}}
+        feature_reuse: False
+        relation_reuse: False
+    normal_token_backbone:
+        func: 'networks.vit_dvt.ViT'
+        d_model: {{base_cfg['d_model']}}
+        image_size: {{crop_size}}
+        patch_size: 16
+        pool: cls
+        dropout_rate: 0.1
+        depth: {{base_cfg['depth']}}
+        num_heads: {{base_cfg['heads']}}
+        initialization:
+            func: mindspore.common.initializer.Normal
+            sigma: 1.0
+        stem:
+            func: 'networks.vit_dvt.VitStem'
+            d_model: {{base_cfg['d_model']}}
+            image_size: {{crop_size}}
+            patch_size: 16
+            initialization:
+                func: mindspore.common.initializer.XavierUniform
+        dvt_block_batch_size: {{train_batch_size}}
+        dvt_block_patch_size: 16
+        dvt_block_depth: {{base_cfg['depth']}}
+        dvt_block_attention:
+            _func: 'networks.transformer_dvt.DvtAttention'
+            size_cfg: {{base_cfg}}
+            initialization:
+                func: mindspore.common.initializer.XavierUniform
+            activation:
+                func: mindspore.nn.Softmax
+            dropout_rate: 0.1
+        dvt_block_feedforward:
+            _func: 'networks.transformer.FeedForward'
+            size_cfg: {{base_cfg}}
+            in_d_model: 384
+            initialization:
+                func: mindspore.common.initializer.XavierUniform
+            activation:
+                func: mindspore.nn.GELU
+            dropout_rate: 0.1
+        dvt_block_feature_resuse_feedforward:
+            _func: 'mindspore.ops.Identity'
+        dvt_block_normalization1:
+            _func: 'mindspore.nn.LayerNorm'
+            normalized_shape: {{normalized_shape}}
+        dvt_block_normalization2:
+            _func: 'mindspore.nn.LayerNorm'
+            normalized_shape: {{normalized2_shape}}
+        dvt_block_feature_reuse: False
+        dvt_block_relation_reuse: False
+        head:
+            func: 'networks.vit_dvt.origin_head'
+            size_cfg: {{base_cfg}}
+            dropout_rate: 0.1
+            num_classes: {{num_classes}}
+            activation:
+                func: mindspore.nn.GELU
+            initialization:
+                func: mindspore.common.initializer.XavierUniform
+            normalization:
+                func: 'mindspore.nn.LayerNorm'
+                normalized_shape: {{normalized_shape}}
+        norm:
+            _func: 'mindspore.nn.LayerNorm'
+            normalized_shape: {{normalized_shape}}
+        feature_reuse: False
+        relation_reuse: False
+
+{% set resize_size = 256 %}
+
+
+train_dataset:
+    func: "utils.dataset.create_dataset"
+    dataset_path: {{train_dataset_path}}
+    do_train: True
+    batch_size: {{train_batch_size}}
+    resize_size: {{resize_size}}
+    crop_size: {{crop_size}}
+    target: {{DEVICE}}
+    autoaugment: True
+    num_classes: {{num_classes}}
+    mixup: 0.2
+{% set train_batches_num = train_len // (train_batch_size * DEVICE_NUM)%}
+train_batches_num: {{train_batches_num}}
+train_len: {{train_len}}
+
+{% if EVAL_BATCH_SIZE is not none %}
+    {% set eval_batch_size = EVAL_BATCH_SIZE %}
+{% else %}
+    {% set eval_batch_size = 64 %}
+{% endif %}
+eval_batch_size: {{eval_batch_size}}
+eval_dataset:
+    func: "utils.dataset.create_dataset"
+    dataset_path: {{eval_dataset_path}}
+    do_train: False
+    batch_size: {{eval_batch_size}}
+    resize_size: {{resize_size}}
+    crop_size: {{crop_size}}
+    target: {{DEVICE}}
+val_len: {{val_len}}
+
+{% set lr_per_bs256 = 0.00044375 %}
+lr_schedule:
+    func: "utils.lr_generator.get_lr"
+    start_epoch: {{START_EPOCH}}
+    lr_init: 0.0
+    lr_end: 0.0
+    lr_max: {{lr_per_bs256 * DEVICE_NUM * train_batch_size / 256}}
+    warmup_epochs: 40
+    total_epochs: {{NUM_EPOCHS}}
+    steps_per_epoch: {{train_len // (train_batch_size * DEVICE_NUM)}}
+    lr_decay_mode: 'cosine'
+    poly_power: 2
+
+{% set weight_decay = 0.05 %}
+{% set loss_scale = 1024 %}
+optimizer:
+    func: "nn.optimizers.adamw_gcnorm.AdamW"
+    params:
+        func: "nn.optimizers.beta_bias_wd_filter"
+        params: null
+        weight_decay: {{weight_decay}}
+    learning_rate: null
+    loss_scale: {{loss_scale}}
+
+{% if STAT == 1 %}
+    {% set sink_size = -1 %}
+    {% set dataset_sink_mode = False %}
+{% else %}
+    {% set sink_size = train_batches_num %}
+    {% set dataset_sink_mode = True %}
+{% endif %}
+sink_size: {{sink_size}}
+dataset_sink_mode: {{dataset_sink_mode}}
+
+train_model:
+    func: "mindspore.train.Model"
+    network: null
+    loss_fn:
+        func: "nn.losses.cross_entropy.CrossEntropySmoothMixup2"
+        sparse: True
+        reduction: "mean"
+        smooth_factor: 0.1
+        num_classes: {{num_classes}}
+    optimizer: null
+    loss_scale_manager:
+        func: "mindspore.train.loss_scale_manager.FixedLossScaleManager"
+        loss_scale: {{loss_scale}}
+        drop_overflow_update: False
+    amp_level: "O0"
+    keep_batchnorm_fp32: False
+    metrics:
+        acc:
+            func: "nn.metrics.DistAccuracy2"
+            batch_size: {{eval_batch_size}}
+            device_num: {{DEVICE_NUM}}
+            val_len: {{val_len}}
+    eval_network:
+        func: "nn.metrics.ClassifyCorrectCell2"
+        network: null
+
+eval_model:
+    func: "mindspore.train.Model"
+    network: null
+    loss_fn:
+        func: "nn.losses.CrossEntropySmooth"
+        sparse: True
+        reduction: "mean"
+        smooth_factor: 0.1
+        num_classes: {{num_classes}}
+    amp_level: "O0"
+    keep_batchnorm_fp32: False
+    metrics:
+        acc:
+            func: "nn.metrics.DistAccuracy"
+            batch_size: {{eval_batch_size}}
+            device_num: {{DEVICE_NUM}}
+            val_len: {{val_len}}
+    eval_network:
+        func: "nn.metrics.ClassifyCorrectCell"
+        network: null
+
+{% set save_checkpoint_epochs = 5 %}
+checkpoint_callback:
+    func: "mindspore.train.callback.ModelCheckpoint"
+    prefix: {{name}}
+    directory: "/cache/checkpoints"
+    config:
+      func: "mindspore.train.callback.CheckpointConfig"
+      save_checkpoint_steps: {{save_checkpoint_epochs * train_batches_num}}
+      keep_checkpoint_max: 10
+
+eval:
+    offset: 0
+    interval: 1
